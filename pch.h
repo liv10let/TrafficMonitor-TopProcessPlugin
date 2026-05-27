@@ -8,3 +8,7 @@
 #include <map>
 #include <algorithm>
 #include <cstdint>
+#include <pdh.h>
+#include <pdhmsg.h>
+
+#pragma comment(lib, "pdh.lib")

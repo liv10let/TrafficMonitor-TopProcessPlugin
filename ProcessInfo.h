@@ -5,6 +5,7 @@
 #include <vector>
 #include <tlhelp32.h>
 #include <psapi.h>
+#include <map>
 
 struct ProcessInfo
 {
@@ -16,25 +17,33 @@ struct ProcessInfo
 
 class CProcessInfoHelper
 {
+private:
+    static DWORDLONG GetProcessMemory(HANDLE hProcess)
+    {
+        PROCESS_MEMORY_COUNTERS pmc;
+        if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc)))
+        {
+            return (DWORDLONG)pmc.WorkingSetSize;
+        }
+        return 0;
+    }
+
 public:
     static std::vector<ProcessInfo> GetAllProcesses()
     {
         std::vector<ProcessInfo> processes;
 
-        // Get initial CPU times for all processes
         static std::map<DWORD, ULARGE_INTEGER> lastKernelTime;
         static std::map<DWORD, ULARGE_INTEGER> lastUserTime;
         static ULARGE_INTEGER lastSystemTime = { 0 };
         static bool firstCall = true;
 
-        // Get current system time
         FILETIME ftSystemTime;
         GetSystemTimeAsFileTime(&ftSystemTime);
         ULARGE_INTEGER currentSystemTime;
         currentSystemTime.LowPart = ftSystemTime.dwLowDateTime;
         currentSystemTime.HighPart = ftSystemTime.dwHighDateTime;
 
-        // Calculate system time delta
         ULONGLONG systemTimeDelta = 0;
         if (!firstCall)
         {
@@ -42,7 +51,6 @@ public:
         }
         lastSystemTime = currentSystemTime;
 
-        // Get number of processors for CPU usage calculation
         SYSTEM_INFO sysInfo;
         GetSystemInfo(&sysInfo);
         DWORD numProcessors = sysInfo.dwNumberOfProcessors;
@@ -60,23 +68,19 @@ public:
             {
                 ProcessInfo info;
                 info.pid = pe32.th32ProcessID;
-                // Explicitly copy process name using wcslen to ensure correct length
                 info.name = std::wstring(pe32.szExeFile, wcslen(pe32.szExeFile));
                 info.cpuUsage = 0.0;
                 info.memoryUsage = 0;
 
-                // Get process handle
+                // Try full access first, then limited
                 HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, info.pid);
+                if (!hProcess)
+                    hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, info.pid);
+
                 if (hProcess)
                 {
-                    // Get memory usage
-                    PROCESS_MEMORY_COUNTERS pmc;
-                    if (GetProcessMemoryInfo(hProcess, &pmc, sizeof(pmc)))
-                    {
-                        info.memoryUsage = pmc.WorkingSetSize;
-                    }
+                    info.memoryUsage = GetProcessMemory(hProcess);
 
-                    // Get CPU usage
                     FILETIME ftCreation, ftExit, ftKernel, ftUser;
                     if (GetProcessTimes(hProcess, &ftCreation, &ftExit, &ftKernel, &ftUser))
                     {
@@ -96,7 +100,6 @@ public:
 
                             if (systemTimeDelta > 0)
                             {
-                                // CPU usage = (kernel + user time) / (system time * num processors)
                                 info.cpuUsage = ((double)(kernelDelta + userDelta) / (double)systemTimeDelta) * 100.0 / numProcessors;
                             }
                         }
@@ -123,18 +126,25 @@ public:
         static std::vector<ProcessInfo> lastProcesses;
         std::vector<ProcessInfo> currentProcesses = GetAllProcesses();
 
-        ProcessInfo topCpu;
-        topCpu.cpuUsage = -1.0;
-
+        std::map<std::wstring, double> cpuByProcess;
         for (const auto& proc : currentProcesses)
         {
-            // Skip system idle process and system process
             if (proc.pid == 0 || proc.pid == 4)
                 continue;
+            if (proc.name == L"Memory Compression")
+                continue;
+            cpuByProcess[proc.name] += proc.cpuUsage;
+        }
 
-            if (proc.cpuUsage > topCpu.cpuUsage)
+        ProcessInfo topCpu;
+        topCpu.cpuUsage = -1.0;
+        for (const auto& pair : cpuByProcess)
+        {
+            if (pair.second > topCpu.cpuUsage)
             {
-                topCpu = proc;
+                topCpu.name = pair.first;
+                topCpu.cpuUsage = pair.second;
+                topCpu.pid = 0;
             }
         }
 
@@ -142,22 +152,38 @@ public:
         return topCpu;
     }
 
-    static ProcessInfo GetTopMemoryProcess()
+    static ProcessInfo GetTopMemoryProcess(DWORDLONG* pTotalMemory = nullptr)
     {
         std::vector<ProcessInfo> processes = GetAllProcesses();
 
-        ProcessInfo topMem;
-        topMem.memoryUsage = 0;
-
+        std::map<std::wstring, DWORDLONG> memoryByProcess;
+        DWORDLONG totalMemory = 0;
         for (const auto& proc : processes)
         {
-            // Skip system idle process and system process
             if (proc.pid == 0 || proc.pid == 4)
                 continue;
+            if (proc.name == L"Memory Compression")
+                continue;
+            memoryByProcess[proc.name] += proc.memoryUsage;
+            totalMemory += proc.memoryUsage;
+        }
 
-            if (proc.memoryUsage > topMem.memoryUsage)
+        // Use physical memory in use as denominator (matches Task Manager)
+        MEMORYSTATUSEX memInfo;
+        memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+        GlobalMemoryStatusEx(&memInfo);
+        if (pTotalMemory)
+            *pTotalMemory = memInfo.ullTotalPhys - memInfo.ullAvailPhys;
+
+        ProcessInfo topMem;
+        topMem.memoryUsage = 0;
+        for (const auto& pair : memoryByProcess)
+        {
+            if (pair.second > topMem.memoryUsage)
             {
-                topMem = proc;
+                topMem.name = pair.first;
+                topMem.memoryUsage = pair.second;
+                topMem.pid = 0;
             }
         }
 

@@ -52,7 +52,7 @@ void CTopCpuProcessItem::UpdateData(const std::wstring& processName, double cpuU
         return;
     }
 
-    // Convert to string and remove .exe
+    // Remove .exe for display
     std::string name(processName.begin(), processName.end());
     size_t exePos = name.find(".exe");
     if (exePos != std::string::npos)

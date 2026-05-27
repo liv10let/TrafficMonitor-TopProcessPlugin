@@ -28,22 +28,17 @@ IPluginItem* CTopProcessPlugin::GetItem(int index)
 
 void CTopProcessPlugin::DataRequired()
 {
-    // Get total physical memory for percentage calculation
-    MEMORYSTATUSEX memInfo;
-    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
-    GlobalMemoryStatusEx(&memInfo);
-    DWORDLONG totalPhysMem = memInfo.ullTotalPhys;
-
     // Get top CPU process
     ProcessInfo topCpu = CProcessInfoHelper::GetTopCpuProcess();
     m_topCpuItem.UpdateData(topCpu.name, topCpu.cpuUsage);
 
-    // Get top memory process
-    ProcessInfo topMem = CProcessInfoHelper::GetTopMemoryProcess();
+    // Get top memory process with total memory sum as denominator
+    DWORDLONG totalProcessMemory = 0;
+    ProcessInfo topMem = CProcessInfoHelper::GetTopMemoryProcess(&totalProcessMemory);
     double memPercent = 0.0;
-    if (totalPhysMem > 0)
+    if (totalProcessMemory > 0)
     {
-        memPercent = (double)topMem.memoryUsage / (double)totalPhysMem * 100.0;
+        memPercent = (double)topMem.memoryUsage / (double)totalProcessMemory * 100.0;
     }
     m_topMemoryItem.UpdateData(topMem.name, topMem.memoryUsage, memPercent);
 }

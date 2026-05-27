@@ -11,7 +11,7 @@ echo "Compiling TopMemoryProcessItem.cpp..."
 g++ -std=c++17 -O2 -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0A00 -c TopMemoryProcessItem.cpp -o TopMemoryProcessItem.o
 
 echo "Linking..."
-g++ -shared -static -s -o TopProcessPlugin.dll TopProcessPlugin.o TopCpuProcessItem.o TopMemoryProcessItem.o -lpsapi -lkernel32 -luser32
+g++ -shared -static -s -o TopProcessPlugin.dll TopProcessPlugin.o TopCpuProcessItem.o TopMemoryProcessItem.o -lpsapi -lkernel32 -luser32 -lpdh
 
 echo "Cleaning up..."
 rm -f *.o
